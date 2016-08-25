@@ -13,20 +13,20 @@ int IndexTreeHelper::ucs4slen(const u32 *ucs)
 
 int IndexTreeHelper::ucs4CharToUTF8Byte(u32 uchr, char* ub)
 {
-    const char prefix[] = {0, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC};  
-    const u32  codeup[] = {  
-        0x80,           // U+00000000 ～ U+0000007F  
-        0x800,          // U+00000080 ～ U+000007FF  
-        0x10000,        // U+00000800 ～ U+0000FFFF  
-        0x200000,       // U+00010000 ～ U+001FFFFF  
-        0x4000000,      // U+00200000 ～ U+03FFFFFF  
-        0x80000000      // U+04000000 ～ U+7FFFFFFF  
+    const char prefix[] = {0, 0xC0, 0xE0, 0xF0, 0xF8, 0xFC};
+    const u32  codeup[] = {
+        0x80,           // U+00000000 ～ U+0000007F
+        0x800,          // U+00000080 ～ U+000007FF
+        0x10000,        // U+00000800 ～ U+0000FFFF
+        0x200000,       // U+00010000 ～ U+001FFFFF
+        0x4000000,      // U+00200000 ～ U+03FFFFFF
+        0x80000000      // U+04000000 ～ U+7FFFFFFF
     };
 
-    int i, len;  
-    len = sizeof(codeup) / sizeof(u32);  
-    for (i = 0; i < len; i++)  
-    {  
+    int i, len;
+    len = sizeof(codeup) / sizeof(u32);
+    for (i = 0; i < len; i++)
+    {
         if (uchr < codeup[i])
             break;
     }
@@ -36,14 +36,14 @@ int IndexTreeHelper::ucs4CharToUTF8Byte(u32 uchr, char* ub)
     len = i + 1;
     if (ub != NULL)
     {
-        for( ; i > 0; i-- )  
+        for( ; i > 0; i-- )
         {
-            ub[i] = static_cast<char>((uchr & 0x3F) | 0x80);  
-            uchr >>= 6;  
+            ub[i] = static_cast<char>((uchr & 0x3F) | 0x80);
+            uchr >>= 6;
         }
-        ub[0] = static_cast<char>(uchr | prefix[len - 1]);  
+        ub[0] = static_cast<char>(uchr | prefix[len - 1]);
     }
-    return len;  
+    return len;
 }
 
 // Caller should release the returned pointer char*
@@ -88,15 +88,15 @@ u32 IndexTreeHelper::utf8byteToUCS4Char(const char** ub)
     }
 
     if(b < 0xE0) {
-        uchr = b & 0x1F;  
+        uchr = b & 0x1F;
         len = 2;
     } else if(b < 0xF0) {
-        uchr = b & 0x0F;  
-        len = 3;  
+        uchr = b & 0x0F;
+        len = 3;
     } else if( b < 0xF8) {
         uchr = b & 7;
-        len = 4;	
-    } else if(b < 0xFC) {  
+        len = 4;
+    } else if(b < 0xFC) {
         uchr = b & 3;
         len = 5;
     } else {
@@ -148,7 +148,7 @@ void IndexTreeHelper::mergeFile(FILE *det, FILE *src)
 {
 	unsigned char buf[2048];
 	int nr;
-	
+
 	while ((nr = fread(buf, 1, 2048, src)) > 0) {
 		fwrite(buf, 1, nr, det);
 	}
@@ -163,7 +163,7 @@ int IndexTreeHelper::strComLen(const char* pstr1, const char* pstr2, int start)
     return ret;
 }
 
-namespace indextree_helper {
+namespace indextree {
 
 size_t ReadFile::operator()(FILE *f, void *ptr, size_t length)
 {
@@ -189,7 +189,7 @@ void* ReadFile::operator()(FILE *f, size_t length)
     if (length == -1) {
         fseek(f, 0, SEEK_END);
         length = ftello(f);
-        fseek(f, 0, SEEK_SET); 
+        fseek(f, 0, SEEK_SET);
     }
     ptr = malloc(length);
     size_t rdbytes = 0;
@@ -199,7 +199,7 @@ void* ReadFile::operator()(FILE *f, size_t length)
 	rsize = fread(ptr, 1, bytes, f);
         rdbytes += rsize;
     }while(rsize > 0 && rdbytes < length);
-    return ptr;	
+    return ptr;
 }
 
 MutexCriticalSection::MutexCriticalSection(bool re)

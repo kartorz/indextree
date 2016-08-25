@@ -16,7 +16,7 @@
 #include <map>
 #include <string>
 
-#include "kary_tree/kary_tree2.hpp"
+#include "kary_tree/kary_tree.hpp"
 #include "indextree_inner.h"
 #include "IndexTreeHelper.h"
 
@@ -25,8 +25,9 @@ using namespace std;
 
 class iIndexItem {
 public:
-    iIndexItem():index(""),opaque(NULL),data_i(0),data_s(""),data_f(0.0)
+    iIndexItem():opaque(NULL),data_i(0),data_s(""),data_f(0.0)
 	{
+        index = "";  // fixed: macro "index" requires 2 arguments
 	}
     ~iIndexItem()
     {
@@ -48,8 +49,12 @@ typedef vector<iIndexItem*> IndexList;
 class IndexTree {
 public:
     IndexTree();
-    bool load(const string& inxFilePath, int magic);
-    bool load(FILE *inxFile, int magic);
+    virtual ~IndexTree();
+
+    virtual bool load(FILE *inxFile, int magic);
+    virtual struct inxtree_dataitem dataitem(address_t loc);
+
+    bool load(const string& inxFilePath, int magic, bool r=true);
     bool lookup(const string& word, vector<inxtree_dataitem>& items);
     bool lookup(const string& word, vector<inxtree_dataitem>& items, int candidateNum, IndexList& candidate);
 
@@ -58,10 +63,9 @@ public:
     int getIndexList(IndexList& indexList, string startwith="", int start=0, int len=-1);
     int validLen(string  key);
 
-    struct inxtree_dataitem dataitem(address_t loc);
     struct inxtree_header m_header;
 
-private:
+protected:
     struct IndexStat {
         int start;
         int end;
@@ -95,6 +99,8 @@ private:
                    struct IndexStat *stat,
                    IndexList& indexList);
 
+    struct inxtree_dataitem  dataitem(FILE *datafile, off_t off);
+
     tree_node<inxtree_chrindex>::treeNodePtr
     findTreeNode(char *strkey, tree_node<inxtree_chrindex>::treeNodePtr parent, int* remain);
 
@@ -104,7 +110,7 @@ private:
     void* getBlock(int blk);
 
     FILE *m_inxFile;
-    kary_tree2<inxtree_chrindex> *m_indexTree;
+    kary_tree<inxtree_chrindex> *m_indexTree;
     address_t m_chrIndexLoc;
     address_t m_strIndexLoc;
     address_t m_dataLoc;
@@ -113,7 +119,7 @@ private:
     int m_indexEnd;
     int m_indexNumber;
     map<int, void*> m_blkCache;
-    indextree_helper::MutexCriticalSection m_cs;
+    indextree::MutexCriticalSection m_cs;
 };
 
 #endif

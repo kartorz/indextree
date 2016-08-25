@@ -29,7 +29,7 @@ public:
     static off_t  checkBlockBound(off_t pos, int nbytes);
 };
 
-namespace indextree_helper {
+namespace indextree {
 
 class ReadFile {
 public:
@@ -37,8 +37,8 @@ public:
 	:ptr(NULL)
 	{ }
 
-	~ReadFile()	
-	{ 
+	~ReadFile()
+	{
 		if (ptr != NULL)
 			free(ptr);
 	}
@@ -75,7 +75,7 @@ public:
             CloseHandle(m_mutex);
         #else
 	    pthread_mutex_destroy(&m_mutex);
-        #endif   
+        #endif
 	}
 
 	void lock()
@@ -87,7 +87,7 @@ public:
         #endif
 	}
 
-        void trylock()
+    void trylock()
 	{
         #ifdef WIN32
             WaitForSingleObject(m_mutex, INFINITE);
@@ -100,9 +100,9 @@ public:
 	{
         #ifdef WIN32
             ReleaseMutex(m_mutex);
-	#else 
+	#else
 	    pthread_mutex_unlock(&m_mutex);
-        #endif 
+        #endif
 	}
 
 	mutex_handle& acquire() {return m_mutex;}

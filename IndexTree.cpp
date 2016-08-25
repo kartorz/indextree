@@ -31,12 +31,22 @@ m_indexTree(NULL)
 {
 }
 
-bool IndexTree::load(const string& inxFilePath, int magic)
+IndexTree::~IndexTree()
 {
-    FILE *F = fopen(inxFilePath.c_str(),"rb");
-    return load(F, magic);
+    printf("~IndexTree\n");
+    if (m_indexTree)
+        free(m_indexTree);
+
+    if (m_inxFile != NULL)
+        fclose(m_inxFile);
 }
 
+bool IndexTree::load(const string& inxFilePath, int magic,  bool r)
+{
+    const char *mode = r ? "rb" : "r+b";
+    FILE *F = fopen(inxFilePath.c_str(), mode);
+    return load(F, magic);
+}
 
 bool IndexTree::load(FILE *inxFile, int magic)
 {
@@ -45,7 +55,7 @@ bool IndexTree::load(FILE *inxFile, int magic)
 	}
 
     m_inxFile = inxFile;
-	indextree_helper::ReadFile read;
+	indextree::ReadFile read;
 	size_t size = read(m_inxFile, &m_header, sizeof(struct inxtree_header));
     if (size < sizeof(struct inxtree_header))
         return false;
@@ -62,8 +72,11 @@ bool IndexTree::load(FILE *inxFile, int magic)
 bool IndexTree::loadIndexTree()
 {
     if (m_chrIndexLoc != INXTREE_INVALID_ADDR) {
-        indextree_helper::ReadFile read;
-        indextree_helper::Malloc maclloc_t;
+        if (m_indexTree)             // For reload.
+            free(m_indexTree);
+
+        indextree::ReadFile read;
+        indextree::Malloc maclloc_t;
         address_t len = (m_strIndexLoc - m_chrIndexLoc)*INXTREE_BLOCK;
         void* chrblock = maclloc_t(len);
 
@@ -72,7 +85,7 @@ bool IndexTree::loadIndexTree()
 
         struct inxtree_chrindex rootIndex;
         rootIndex = *((struct inxtree_chrindex*)chrblock);
-        m_indexTree = new kary_tree2<inxtree_chrindex>(rootIndex);
+        m_indexTree = new kary_tree<inxtree_chrindex>(rootIndex);
         if (true/*len <= MEM_CHARINX_MAX*/) {
             loadIndexTree(m_indexTree->root(), chrblock, len);
         } else {
@@ -96,7 +109,7 @@ void IndexTree::loadIndexTree(tree_node<inxtree_chrindex>::treeNodePtr parent,
     }
 
 	//g_sysLog.d("{loadIndexTree} parent loc: (%u-->0x%x), len:(%d)\n", loc, loc, len);
-	if ((loc & 0x80000000) == 0 && len > 0) { /* non-leaf */
+	if ((loc & F_LOCSTRINX) == 0 && len > 0) { /* non-leaf */
         if (loc + (len-1) * sizeof(struct inxtree_chrindex) > blksize) {
             printf("e:{loadIndexTree} (loc(%u) --> len(%u) )over char index aread\n", loc, len);
             return;
@@ -109,12 +122,17 @@ void IndexTree::loadIndexTree(tree_node<inxtree_chrindex>::treeNodePtr parent,
 			parent->insert(chrInx);
             // Recursion
 			loadIndexTree((*parent)[i], chrblock, blksize);
+
+            // After loaded all children, reset the location for 'IndexTreeWriter::writeCharIndex'
+            inxtree_write_u32(parInx.location, INXTREE_INVALID_ADDR);
 		}
 	}
 }
 
 bool IndexTree::lookup(const string& word, vector<inxtree_dataitem>& items)
 {
+    indextree::MutexLock lock(m_cs);
+
     struct LookupStat lookupStat;
     lookupStat.advance = word;
 
@@ -130,6 +148,8 @@ bool IndexTree::lookup(const string& word, vector<inxtree_dataitem>& items)
 
 bool IndexTree::lookup(const string& word, vector<inxtree_dataitem>& items, int candidateNum, IndexList& candidate)
 {
+    indextree::MutexLock lock(m_cs);
+
     struct LookupStat lookupStat;
     lookupStat.advance = word;
 
@@ -156,32 +176,33 @@ bool IndexTree::lookup(char *strkey, tree_node<inxtree_chrindex>::treeNodePtr pa
     /* 'strkey' will be modified, some chars will be removed */
     const u4char_t key = IndexTreeHelper::utf8byteToUCS4Char((const char**)&strkey);
     //printf("lookup, %lc\n", key);
-    int cid = bsearch(parent, key, 0, parent->children().size()-1);
-	if (cid != -1) {
+    if (parent->size() > 0) {
+        int cid = bsearch(parent, key, 0, parent->size()-1);
+        if (cid != -1) {
 	    if (strlen(strkey) > 0) {
-	        if (parent->child(cid)->children().size() > 0) {
+	        if (parent->child(cid)->size() > 0) {
                     return lookup(strkey, (*parent)[cid], lookupStat);
-		} else {
-            struct inxtree_chrindex chrInx = parent->child(cid)->value();
-		    address_t loc = inxtree_read_u32(chrInx.location);
-		    int len = inxtree_read_u16(chrInx.len_content);
-		    if ((loc & F_LOCSTRINX) == F_LOCSTRINX) {
+            } else {
+                struct inxtree_chrindex chrInx = parent->child(cid)->value();
+                address_t loc = inxtree_read_u32(chrInx.location);
+                int len = inxtree_read_u16(chrInx.len_content);
+                if ((loc & F_LOCSTRINX) == F_LOCSTRINX) {
 	                if (lookup(strkey, loc & (~F_LOCSTRINX), len, lookupStat))
                             return true;
 
-                        int len = lookupStat.advance.length() - strlen(strkey); /* it is not the same as 'remain' */
-                        lookupStat.advance = lookupStat.advance.substr(0, len);
-                        lookupStat.currentNode = (*parent)[cid];
-                        return false;
-		    } else /* leaf node without a string index */  {
-                        int len = lookupStat.advance.length() - strlen(strkey);
-                        lookupStat.advance = lookupStat.advance.substr(0, len);
-                        lookupStat.currentNode = NULL;
-                        return false;
-                    }
+                    int len = lookupStat.advance.length() - strlen(strkey); /* it is not the same as 'remain' */
+                    lookupStat.advance = lookupStat.advance.substr(0, len);
+                    lookupStat.currentNode = (*parent)[cid];
+                    return false;
+                } else /* leaf node without a string index */  {
+                    int len = lookupStat.advance.length() - strlen(strkey);
+                    lookupStat.advance = lookupStat.advance.substr(0, len);
+                    lookupStat.currentNode = NULL;
+                    return false;
+                }
 	        }
-	} else { /* advance to the end of strkey */
-            int csize = parent->child(cid)->children().size();
+	    } else { /* advance to the end of strkey */
+            int csize = parent->child(cid)->size();
 		    if (csize > 0) {
                 /* Maybe, there are same key with different val.*/
                 for (int i=0; i<csize; i++) {
@@ -201,7 +222,7 @@ bool IndexTree::lookup(char *strkey, tree_node<inxtree_chrindex>::treeNodePtr pa
 			} else {
                 struct inxtree_chrindex chrInx = parent->child(cid)->value();
 				address_t loc = inxtree_read_u32(chrInx.location);
-			    if ((loc & F_LOCSTRINX) == 0) {
+			    if ((loc & F_LOCSTRINX) != F_LOCSTRINX) {
 				    lookupStat.locs.push_back(loc);
                     return true;
 				} else {
@@ -210,7 +231,8 @@ bool IndexTree::lookup(char *strkey, tree_node<inxtree_chrindex>::treeNodePtr pa
                 }
 			}
 		}
-	}
+        }
+    }
 
     int total = lookupStat.advance.length();
     lookupStat.advance = lookupStat.advance.substr(0, total-remain); // get the common string.
@@ -292,6 +314,7 @@ void IndexTree::lookupCandidate(tree_node<inxtree_chrindex>::treeNodePtr parent,
  */
 int IndexTree::getIndexList(IndexList& indexList, string startwith, int start, int len)
 {
+    indextree::MutexLock lock(m_cs);
     if (!m_indexTree)
         return 0;
 
@@ -312,7 +335,7 @@ int IndexTree::getIndexList(IndexList& indexList, string startwith, int start, i
 
         if (remain > 0) {
             int num = 0;
-            struct inxtree_chrindex chrInx = root->children().size() == 0 ? root->value() : root->child(0)->value();
+            struct inxtree_chrindex chrInx = root->size() == 0 ? root->value() : root->child(0)->value();
             IndexList strIndexList;
             loadIndex(prefix, chrInx, &stat, strIndexList);
             for (int i = 0; i < strIndexList.size(); i++) {
@@ -345,7 +368,7 @@ bool IndexTree::loadIndex(u4char_t *str, int inx, struct IndexStat *stat,
                                tree_node<inxtree_chrindex>::treeNodePtr parent,
                                IndexList& indexList)
 {
-    int children_size = parent->children().size();
+    int children_size = parent->size();
 	if (children_size > 0) {
 	    for (int i=0; i<children_size; i++) {
 	        struct inxtree_chrindex chrInx = parent->child(i)->value();
@@ -378,7 +401,8 @@ bool IndexTree::loadIndex(u4char_t *str, int inx, struct IndexStat *stat,
             return false;
         }
         strparent = string(pinx);
-        //printf("strparent %s\n", strparent.c_str());
+        if (m_dataLoc < 10)
+        printf("strparent %s\n", strparent.c_str());
         free(pinx);
     }
 
@@ -411,16 +435,16 @@ bool IndexTree::loadIndex(string startwith,
 {
 	address_t loc = inxtree_read_u32(chrInx.location);
 	int length = inxtree_read_u16(chrInx.len_content);
-    if ((loc & F_LOCSTRINX) != F_LOCSTRINX)
+    if ((loc == INXTREE_INVALID_ADDR) || (loc & F_LOCSTRINX) != F_LOCSTRINX)
         return false;
-
+    printf("d: {loadIndex} from string index, addr 0x%x\n", loc);
     loc = loc & (~F_LOCSTRINX);
     int bk_off = loc/INXTREE_BLOCK;
     int addr_off = loc%INXTREE_BLOCK;
     int block_nr = m_strIndexLoc+bk_off;
     u8 *buf_start, *buf_end;
     if (bk_off > m_dataLoc - m_strIndexLoc) {
-        printf("e: {loadIndex} a invalid addr (%x\n", loc);
+        printf("e: {loadIndex} from string index, a invalid addr 0x%x\n", loc);
         return false;
     }
 
@@ -488,7 +512,7 @@ int IndexTree::validLen(string  key)
     root = findTreeNode((char*)key.c_str(), root, &remain);
     string prefix = key.substr(0, key.length() - remain);
     if (remain > 0) {
-        struct inxtree_chrindex chrInx = root->children().size() == 0 ? root->value() : root->child(0)->value();
+        struct inxtree_chrindex chrInx = root->size() == 0 ? root->value() : root->child(0)->value();
         IndexList strIndexList;
         struct IndexStat stat;
         if (loadIndex(prefix, chrInx, &stat, strIndexList)) {
@@ -515,8 +539,8 @@ IndexTree::findTreeNode(char *strkey, tree_node<inxtree_chrindex>::treeNodePtr p
     /* 'strkey' will be modified, some chars will be removed */
 	const u4char_t key = IndexTreeHelper::utf8byteToUCS4Char((const char**)&strkey);
 
-        if (parent->children().size() > 0) {
-            int i = bsearch(parent, key, 0, parent->children().size()-1);
+        if (parent->size() > 0) {
+            int i = bsearch(parent, key, 0, parent->size()-1);
             if (i != -1) {
                 struct inxtree_chrindex chrInx = parent->child(i)->value();
                 u4char_t chr = inxtree_read_u32(chrInx.wchr);
@@ -556,8 +580,7 @@ void* IndexTree::getBlock(int blk)
 {
     map<int, void*>::iterator iter = m_blkCache.find(blk);
     if(iter == m_blkCache.end()) {
-        indextree_helper::MutexLock lock(m_cs);
-        indextree_helper::ReadFile read;
+        indextree::ReadFile read;
         void *ptr = malloc(INXTREE_BLOCK);
         memset(ptr, 0, INXTREE_BLOCK);
         if (ptr != NULL) {
@@ -580,27 +603,39 @@ void* IndexTree::getBlock(int blk)
     }
 }
 
-
 struct inxtree_dataitem
 IndexTree::dataitem(address_t loc)
 {
+	if (loc != INXTREE_INVALID_ADDR) {
+        off_t off = (m_dataLoc-1)*INXTREE_BLOCK + loc;
+        return dataitem(m_inxFile, off);
+    }
+
     struct inxtree_dataitem d;
 	memset(&d, 0, sizeof(struct inxtree_dataitem));
-	if (loc != INXTREE_INVALID_ADDR) {
-		indextree_helper::ReadFile read;
-    	fseek(m_inxFile, (m_dataLoc-1)*INXTREE_BLOCK + loc, SEEK_SET);
-
-		u8 *buf = (u8 *)read(m_inxFile, 2);
-		d.len_data = inxtree_read_u16(buf);
-		if (d.len_data > 0) {
-			d.ptr_data = (u8 *)malloc(d.len_data);
-			buf = (u8 *)read(m_inxFile, d.len_data);
-			memcpy(d.ptr_data, buf, d.len_data);
-            if (d.len_data > 0x8000) {
-                printf("w: dataitem the length of data is larger than 0x8000\n");
-            }
-		}
-	}
-	return d;
+    return d;
 }
 
+struct inxtree_dataitem
+IndexTree::dataitem(FILE *datafile, off_t off)
+{
+    struct inxtree_dataitem d;
+	memset(&d, 0, sizeof(struct inxtree_dataitem));
+
+    indextree::ReadFile read;
+    fseek(datafile, off, SEEK_SET);
+    if (feof(datafile) == 0) {
+        u8 *buf = (u8 *)read(datafile, 2);
+        d.len_data = inxtree_read_u16(buf);
+        if (d.len_data > 0) {
+            d.ptr_data = (u8 *)malloc(d.len_data);
+            buf = (u8 *)read(datafile, d.len_data);
+            memcpy(d.ptr_data, buf, d.len_data);
+            if (d.len_data > 0x8000) {
+                printf("w: (%d-->0x%x) dataitem the length of data is larger than 0x8000\n",m_dataLoc, off);
+            }
+        }
+    }
+
+	return d;
+}

@@ -15,8 +15,8 @@ typedef unsigned int address_t;
 #include "endian_number.h"
 
 #define INXTREE_BLOCK	256
+#define INXTREE_ADDR_MAX  0x7FFFFFFFF
 #define INXTREE_INVALID_ADDR 0xFFFFFFFF
-#define INXTREE_ADDR_MAX  0x7FFFFFFF
 
 #define F_LOCSTRINX  0x80000000
 #define F_DUPLICATEINX  0x01
