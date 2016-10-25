@@ -36,7 +36,7 @@ public:
 	}
 	string index; /* utf-8 bytes */
     inxtree_dataitem d;
-
+    address_t addr; // TODO: add type using addr insteadof d, sometimes, we don't need load data.
     // user data.
     int    data_i;
     string data_s;
@@ -55,8 +55,16 @@ public:
     virtual struct inxtree_dataitem dataitem(address_t loc);
 
     bool load(const string& inxFilePath, int magic, bool r=true);
+    
+    // Caller should free items[i].ptr_data or call freeItems()
     bool lookup(const string& word, vector<inxtree_dataitem>& items);
     bool lookup(const string& word, vector<inxtree_dataitem>& items, int candidateNum, IndexList& candidate);
+
+    static void freeItems(vector<inxtree_dataitem>& items);
+    static void freeItems(IndexList& indexList);
+
+    // Caller should free (void*) ptr
+    void* find(const string& key);
 
     // 'start' from 0.
     // 'end' specified -1 meas all items.

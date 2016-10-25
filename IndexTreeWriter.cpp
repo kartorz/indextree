@@ -23,7 +23,8 @@ m_duplicateIndexFlag(false),
 m_totalChrindex(0),
 m_strinxWordsMax(STRINX_WORDS_MAX),
 m_strinxDepthMax(STRINX_DEPTH_MAX),
-m_bOnLineRW(online)
+m_bOnLineRW(online),
+m_dataTmpFile(NULL)
 {
 }
 
@@ -31,6 +32,7 @@ void IndexTreeWriter::open()
 {
 #ifdef _LINUX
     m_inxFile = fopen("/tmp/inxtree_tmp", "w+");
+    m_dataTmpFile = fopen("/tmp/inxtree_data_tmp", "w+");
 #elif defined(WIN32)
     m_inxFile = fopen("inxtree_tmp", "w+bTD");
 #endif
@@ -47,11 +49,10 @@ bool IndexTreeWriter::load(const string& inxFilePath, int magic, bool online)
 {
     m_bOnLineRW = online;
     m_inxFilePath = inxFilePath;
-    m_dataTmpFile = fopen("/tmp/inxtree_data_tmp", "w+");
-
     if (IndexTree::load(inxFilePath, magic, false)) {
         fseek(m_inxFile, 0L, SEEK_END);
         m_inxDataLen = ftell(m_inxFile) - (m_dataLoc-1)*INXTREE_BLOCK;
+        m_dataTmpFile = fopen("/tmp/inxtree_data_tmp", "w+");
         //m_outputPath = inxFilePath + "_tmp";
         //printf("load done: %s base loc 0x%x, dataloc:%d, 0x%x\n",inxFilePath.c_str(), m_inxDataLen, m_dataLoc, ftell(m_inxFile));
         return true;
@@ -84,7 +85,7 @@ bool IndexTreeWriter::add(u32 *key, int keylen, void *dataPtr, int dataLen)
     inxtree_write_u16(len, dataLen);
 	fwrite((void *)len, 2, 1, m_dataTmpFile);
     fwrite(dataPtr, dataLen, 1, m_dataTmpFile);
-    printf("IndexTreeWriter::add, base:0x%x loc 0x%x, dataLen %d\n", m_inxDataLen, start, dataLen);
+    //printf("IndexTreeWriter::add, base:0x%x loc 0x%x, dataLen %d\n", m_inxDataLen, start, dataLen);
     addToIndextree(m_indexTree->root(), start, key, key + keylen);
 }
 
@@ -152,7 +153,7 @@ ADD:
     inxtree_write_u32(charInx.wchr, key);
     inxtree_write_u16(charInx.len_content, 0);
     if (leaf) {
-	    inxtree_write_u32(charInx.location, d_off);printf("addToIndextree, d_off 0x%x\n", d_off);
+	    inxtree_write_u32(charInx.location, d_off);
         ++m_totalEntry;
     } else {
 		inxtree_write_u32(charInx.location, INXTREE_INVALID_ADDR);
@@ -166,7 +167,7 @@ ADD:
     } else {
         if (leaf) {
             if (inxtree_read_u32((*parent)[pos]->value().location) == INXTREE_INVALID_ADDR) {
-                inxtree_write_u32((*parent)[pos]->value().location, d_off);printf("addToIndextree, d_off2 0x%x\n", d_off);
+                inxtree_write_u32((*parent)[pos]->value().location, d_off);
             } else {
                 printf("WARRNING: append a duplicate index--last u32('%lc')\n", chr);
                 m_duplicateIndexFlag = true;
@@ -253,6 +254,7 @@ bool IndexTreeWriter::write(string output)
 	fclose(outputFile);
 	fclose(m_strinxTmpFile);
     fclose(m_inxFile);
+    m_inxFile = NULL;
     fclose(m_dataTmpFile);
     m_strinxTmpFile = NULL;
 

@@ -33,7 +33,6 @@ m_indexTree(NULL)
 
 IndexTree::~IndexTree()
 {
-    printf("~IndexTree\n");
     if (m_indexTree)
         free(m_indexTree);
 
@@ -129,14 +128,24 @@ void IndexTree::loadIndexTree(tree_node<inxtree_chrindex>::treeNodePtr parent,
 	}
 }
 
-bool IndexTree::lookup(const string& word, vector<inxtree_dataitem>& items)
+// Caller should free (void*) ptr.
+void* IndexTree::find(const string& key)
+{
+    vector<inxtree_dataitem> items;
+    if (lookup(key, items)  && items.size() > 0)
+        return items[0].ptr_data;
+
+    return NULL;
+}
+
+bool IndexTree::lookup(const string& key, vector<inxtree_dataitem>& items)
 {
     indextree::MutexLock lock(m_cs);
 
     struct LookupStat lookupStat;
-    lookupStat.advance = word;
+    lookupStat.advance = key;
 
-    if (lookup((char*)word.c_str(), m_indexTree->root(), lookupStat)) {
+    if (lookup((char*)key.c_str(), m_indexTree->root(), lookupStat)) {
         for (int i=0; i<lookupStat.locs.size(); i++) {
             struct inxtree_dataitem item = dataitem(lookupStat.locs[i]);
             items.push_back(item);
@@ -146,14 +155,14 @@ bool IndexTree::lookup(const string& word, vector<inxtree_dataitem>& items)
     return false;
 }
 
-bool IndexTree::lookup(const string& word, vector<inxtree_dataitem>& items, int candidateNum, IndexList& candidate)
+bool IndexTree::lookup(const string& key, vector<inxtree_dataitem>& items, int candidateNum, IndexList& candidate)
 {
     indextree::MutexLock lock(m_cs);
 
     struct LookupStat lookupStat;
-    lookupStat.advance = word;
+    lookupStat.advance = key;
 
-    if (lookup((char*)word.c_str(), m_indexTree->root(), lookupStat)) {
+    if (lookup((char*)key.c_str(), m_indexTree->root(), lookupStat)) {
         for (int i=0; i<lookupStat.locs.size(); i++) {
             struct inxtree_dataitem item = dataitem(lookupStat.locs[i]);
             items.push_back(item);
@@ -374,7 +383,7 @@ bool IndexTree::loadIndex(u4char_t *str, int inx, struct IndexStat *stat,
 	        struct inxtree_chrindex chrInx = parent->child(i)->value();
             if (inx < INDEXARRY_LEN_MAX -1) {
                 bool ret;
-                if (chrInx.wchr == 0) { //being 0, is a special zero-node for 'index being a word'
+                if (chrInx.wchr == 0) { //being 0, is a special zero-node for 'index being a 'result'
                     ret = loadIndex(str, inx, stat, parent->child(i), indexList);
                 } else {
                     str[inx] = inxtree_read_u32(chrInx.wchr);
@@ -401,8 +410,6 @@ bool IndexTree::loadIndex(u4char_t *str, int inx, struct IndexStat *stat,
             return false;
         }
         strparent = string(pinx);
-        if (m_dataLoc < 10)
-        printf("strparent %s\n", strparent.c_str());
         free(pinx);
     }
 
@@ -638,4 +645,23 @@ IndexTree::dataitem(FILE *datafile, off_t off)
     }
 
 	return d;
+}
+
+void IndexTree::freeItems( IndexList& indexList)
+{
+    IndexList::iterator iter = indexList.begin();
+    for (; iter < indexList.end(); ++iter) {
+        iIndexItem* i = *iter;
+        if (i->d.ptr_data != NULL)
+            free(i->d.ptr_data);
+    }
+}
+
+void IndexTree::freeItems(vector<inxtree_dataitem>& items)
+{
+    vector<inxtree_dataitem>::iterator iter = items.begin();
+    for (; iter < items.end(); ++iter) {
+        if (iter->ptr_data != NULL)
+            free(iter->ptr_data);
+    }
 }
