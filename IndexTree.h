@@ -25,9 +25,11 @@ using namespace std;
 
 class iIndexItem {
 public:
-    iIndexItem():opaque(NULL),data_i(0),data_s(""),data_f(0.0)
+    iIndexItem():opaque(NULL),data_i(0),data_s(""),data_f(0.0),addr(INXTREE_INVALID_ADDR)
 	{
         index = "";  // fixed: macro "index" requires 2 arguments
+        d.len_data = 0;
+        d.ptr = NULL;
 	}
     ~iIndexItem()
     {
@@ -35,8 +37,10 @@ public:
 		    free(opaque);
 	}
 	string index; /* utf-8 bytes */
+
     inxtree_dataitem d;
-    address_t addr; // TODO: add type using addr insteadof d, sometimes, we don't need load data.
+    address_t addr; // sometimes, we don't need load data(inxtree_dataitem).
+
     // user data.
     int    data_i;
     string data_s;
@@ -56,7 +60,7 @@ public:
 
     bool load(const string& inxFilePath, int magic, bool r=true);
     
-    // Caller should free items[i].ptr_data or call freeItems()
+    // Caller should free items[i].ptr or call freeItems()
     bool lookup(const string& word, vector<inxtree_dataitem>& items);
     bool lookup(const string& word, vector<inxtree_dataitem>& items, int candidateNum, IndexList& candidate);
 
@@ -66,12 +70,16 @@ public:
     // Caller should free (void*) ptr
     void* find(const string& key);
 
-    // 'start' from 0.
-    // 'end' specified -1 meas all items.
-    int getIndexList(IndexList& indexList, string startwith="", int start=0, int len=-1);
+    bool data(address_t loc, int bytes, u8 *buf);
+
+    // 'start': from 0.
+    // 'end': specified -1 meas all items.
+    // 'ld':  load data ?
+    int getIndexList(IndexList& indexList, string startwith="",  bool ld = false, int start=0, int len=-1);
     int validLen(string  key);
 
     struct inxtree_header m_header;
+    indextree::MutexCriticalSection m_cs;
 
 protected:
     struct IndexStat {
@@ -100,12 +108,12 @@ protected:
 
     bool loadIndex(u4char_t *str, int inx, struct IndexStat *stat,
                    tree_node<inxtree_chrindex>::treeNodePtr parent,
-                   IndexList& indexList);
+                   IndexList& indexList, bool ld);
 
     bool loadIndex(string startwith,
                    struct inxtree_chrindex& chrInx,
                    struct IndexStat *stat,
-                   IndexList& indexList);
+                   IndexList& indexList, bool ld);
 
     struct inxtree_dataitem  dataitem(FILE *datafile, off_t off);
 
@@ -126,8 +134,8 @@ protected:
     int m_indexStart;
     int m_indexEnd;
     int m_indexNumber;
+    int m_dataItemSize;
     map<int, void*> m_blkCache;
-    indextree::MutexCriticalSection m_cs;
 };
 
 #endif

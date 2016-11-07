@@ -27,7 +27,7 @@ public:
     void setStrinxThreshold(int wordsMax, int depthMax);
     void open();
     bool load(const string& inxFilePath, int magic, bool online = false);
-    bool add(u32 *key, int keylen, void *dataPtr, int dataLen);
+    bool add(u32 *key, int keylen, void *dataPtr, int dataLen, bool bVariedLength=true);
     bool write(string output="");
 
     virtual struct inxtree_dataitem dataitem(address_t loc);

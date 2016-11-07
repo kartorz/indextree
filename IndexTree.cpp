@@ -27,7 +27,8 @@ IndexTree::IndexTree():
 m_chrIndexLoc(INXTREE_INVALID_ADDR),
 m_strIndexLoc(INXTREE_INVALID_ADDR),
 m_dataLoc(INXTREE_INVALID_ADDR),
-m_indexTree(NULL)
+m_indexTree(NULL),
+m_dataItemSize(0)
 {
 }
 
@@ -65,6 +66,8 @@ bool IndexTree::load(FILE *inxFile, int magic)
     m_chrIndexLoc = m_header.loc_chrindex[0];
     m_strIndexLoc = inxtree_read_u32(m_header.loc_strindex);
     m_dataLoc = inxtree_read_u32(m_header.loc_data);
+    m_dataItemSize = inxtree_read_u16(m_header.i_size);
+printf("joni m_dataItemSize: %d\n", m_dataItemSize);
     return loadIndexTree();
 }
 
@@ -133,7 +136,7 @@ void* IndexTree::find(const string& key)
 {
     vector<inxtree_dataitem> items;
     if (lookup(key, items)  && items.size() > 0)
-        return items[0].ptr_data;
+        return items[0].ptr;
 
     return NULL;
 }
@@ -306,7 +309,7 @@ void IndexTree::lookupCandidate(tree_node<inxtree_chrindex>::treeNodePtr parent,
         //IndexList indexList;
         //string header = candidate;
         //candidate.clear();
-        loadIndex(index, 0, &stat, parent, candidate);
+        loadIndex(index, 0, &stat, parent, candidate, false);
         for (int i=0; i<candidate.size(); i++) {
             candidate[i]->index = header + candidate[i]->index;
             //candidate = candidate + index + '\n';
@@ -320,8 +323,9 @@ void IndexTree::lookupCandidate(tree_node<inxtree_chrindex>::treeNodePtr parent,
  * [indexList]  return back.
  * [startwith]  prefix of index.
  * [start, end] -1 means all.
+ * [ld]         load data ?
  */
-int IndexTree::getIndexList(IndexList& indexList, string startwith, int start, int len)
+int IndexTree::getIndexList(IndexList& indexList, string startwith, bool ld, int start, int len)
 {
     indextree::MutexLock lock(m_cs);
     if (!m_indexTree)
@@ -346,7 +350,7 @@ int IndexTree::getIndexList(IndexList& indexList, string startwith, int start, i
             int num = 0;
             struct inxtree_chrindex chrInx = root->size() == 0 ? root->value() : root->child(0)->value();
             IndexList strIndexList;
-            loadIndex(prefix, chrInx, &stat, strIndexList);
+            loadIndex(prefix, chrInx, &stat, strIndexList, ld);
             for (int i = 0; i < strIndexList.size(); i++) {
                 string index = strIndexList[i]->index;
                 if (index.length() >= key.length() && index.substr(0, key.length()) == key) {
@@ -368,14 +372,14 @@ int IndexTree::getIndexList(IndexList& indexList, string startwith, int start, i
         free((void *)u4str);
     }
 
-    loadIndex(index, index_star, &stat, root, indexList);
+    loadIndex(index, index_star, &stat, root, indexList, ld);
     return stat.number - stat.start; /* indexListSize use this feature.*/
 }
 
 /* @return : false -> abort */
 bool IndexTree::loadIndex(u4char_t *str, int inx, struct IndexStat *stat,
                                tree_node<inxtree_chrindex>::treeNodePtr parent,
-                               IndexList& indexList)
+                               IndexList& indexList, bool ld)
 {
     int children_size = parent->size();
 	if (children_size > 0) {
@@ -384,10 +388,10 @@ bool IndexTree::loadIndex(u4char_t *str, int inx, struct IndexStat *stat,
             if (inx < INDEXARRY_LEN_MAX -1) {
                 bool ret;
                 if (chrInx.wchr == 0) { //being 0, is a special zero-node for 'index being a 'result'
-                    ret = loadIndex(str, inx, stat, parent->child(i), indexList);
+                    ret = loadIndex(str, inx, stat, parent->child(i), indexList, ld);
                 } else {
                     str[inx] = inxtree_read_u32(chrInx.wchr);
-                    ret = loadIndex(str, inx+1, stat, parent->child(i), indexList);
+                    ret = loadIndex(str, inx+1, stat, parent->child(i), indexList, ld);
                 }
                 if (ret == false)
                     return false;
@@ -421,7 +425,9 @@ bool IndexTree::loadIndex(u4char_t *str, int inx, struct IndexStat *stat,
             if (stat->end == -1 || stat->number < stat->end) {
                 iIndexItem* item = new iIndexItem();
                 item->index = strparent;
-                item->d = dataitem(loc);
+                item->addr = loc;
+                if (ld)
+                    item->d = dataitem(loc);
                 indexList.push_back(item);
             } else {
                 return false;
@@ -431,14 +437,14 @@ bool IndexTree::loadIndex(u4char_t *str, int inx, struct IndexStat *stat,
         return true;
 	}
 
-    return loadIndex(strparent, chrInx, stat, indexList);
+    return loadIndex(strparent, chrInx, stat, indexList, ld);
 }
 
 /* load from string index area */
 bool IndexTree::loadIndex(string startwith,
                           struct inxtree_chrindex& chrInx,
                           struct IndexStat *stat,
-                          IndexList& indexList)
+                          IndexList& indexList, bool ld)
 {
 	address_t loc = inxtree_read_u32(chrInx.location);
 	int length = inxtree_read_u16(chrInx.len_content);
@@ -491,7 +497,9 @@ bool IndexTree::loadIndex(string startwith,
                 //printf("strinx %s, %d\n", strinx.c_str(), pStrInx->len_str[0]);
                 iIndexItem* item = new iIndexItem();
                 item->index = startwith + strinx;
-                item->d = dataitem(inxtree_read_u32(pStrInx->location));
+                item->addr = inxtree_read_u32(pStrInx->location);
+                if (ld)
+                    item->d = dataitem(inxtree_read_u32(pStrInx->location));
                 indexList.push_back(item);
             } else {
                 return false;
@@ -522,7 +530,7 @@ int IndexTree::validLen(string  key)
         struct inxtree_chrindex chrInx = root->size() == 0 ? root->value() : root->child(0)->value();
         IndexList strIndexList;
         struct IndexStat stat;
-        if (loadIndex(prefix, chrInx, &stat, strIndexList)) {
+        if (loadIndex(prefix, chrInx, &stat, strIndexList, false)) {
             int max = 0;
             string strrst = key.substr(key.length() - remain, remain);
             for (int i = 0; i < strIndexList.size(); i++) {
@@ -632,12 +640,19 @@ IndexTree::dataitem(FILE *datafile, off_t off)
     indextree::ReadFile read;
     fseek(datafile, off, SEEK_SET);
     if (feof(datafile) == 0) {
-        u8 *buf = (u8 *)read(datafile, 2);
-        d.len_data = inxtree_read_u16(buf);
-        if (d.len_data > 0) {
-            d.ptr_data = (u8 *)malloc(d.len_data);
-            buf = (u8 *)read(datafile, d.len_data);
-            memcpy(d.ptr_data, buf, d.len_data);
+        if (m_dataItemSize == 0) {
+            u8 *buf = (u8 *)read(datafile, 2);
+            d.len_data = inxtree_read_u16(buf);
+        } else {
+            d.len_data = m_dataItemSize;
+        }
+
+        u8 *buf = (u8 *)read(datafile, d.len_data);
+        if (m_dataItemSize > 0 /* fixed size*/ && m_dataItemSize <= 8) {
+            memcpy(d.buf, buf, d.len_data);
+        } else {
+            d.ptr = (u8 *)malloc(d.len_data);
+            memcpy(d.ptr, buf, d.len_data);
             if (d.len_data > 0x8000) {
                 printf("w: (%d-->0x%x) dataitem the length of data is larger than 0x8000\n",m_dataLoc, off);
             }
@@ -647,13 +662,27 @@ IndexTree::dataitem(FILE *datafile, off_t off)
 	return d;
 }
 
+bool IndexTree::data(address_t loc, int bytes, u8 *buf)
+{
+	if (loc != INXTREE_INVALID_ADDR) {
+        off_t off = (m_dataLoc-1)*INXTREE_BLOCK + loc;
+        indextree::ReadFile read;
+        fseek(m_inxFile, off, SEEK_SET);
+        if (feof(m_inxFile) == 0) {
+            read(m_inxFile, buf, bytes);
+            return true;
+        }
+    }
+    return false;
+}
+
 void IndexTree::freeItems( IndexList& indexList)
 {
     IndexList::iterator iter = indexList.begin();
     for (; iter < indexList.end(); ++iter) {
         iIndexItem* i = *iter;
-        if (i->d.ptr_data != NULL)
-            free(i->d.ptr_data);
+        if (i->d.ptr != NULL)
+            free(i->d.ptr);
     }
 }
 
@@ -661,7 +690,7 @@ void IndexTree::freeItems(vector<inxtree_dataitem>& items)
 {
     vector<inxtree_dataitem>::iterator iter = items.begin();
     for (; iter < items.end(); ++iter) {
-        if (iter->ptr_data != NULL)
-            free(iter->ptr_data);
+        if (iter->ptr != NULL)
+            free(iter->ptr);
     }
 }

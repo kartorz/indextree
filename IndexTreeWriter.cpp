@@ -76,14 +76,16 @@ void IndexTreeWriter::setStrinxThreshold(int wordsMax, int depthMax)
     m_strinxDepthMax = depthMax;
 }
 
-bool IndexTreeWriter::add(u32 *key, int keylen, void *dataPtr, int dataLen)
+bool IndexTreeWriter::add(u32 *key, int keylen, void *dataPtr, int dataLen, bool bVariedLength)
 {
     indextree::MutexLock lock(m_cs);
-	unsigned char len[2];
 
     off_t start = m_inxDataLen + ftello(m_dataTmpFile);
-    inxtree_write_u16(len, dataLen);
-	fwrite((void *)len, 2, 1, m_dataTmpFile);
+    if (bVariedLength) {
+        unsigned char len[2];
+        inxtree_write_u16(len, dataLen);
+        fwrite((void *)len, 2, 1, m_dataTmpFile);
+    }
     fwrite(dataPtr, dataLen, 1, m_dataTmpFile);
     //printf("IndexTreeWriter::add, base:0x%x loc 0x%x, dataLen %d\n", m_inxDataLen, start, dataLen);
     addToIndextree(m_indexTree->root(), start, key, key + keylen);
