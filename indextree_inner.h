@@ -14,6 +14,8 @@ typedef unsigned int address_t;
 
 #include "endian_number.h"
 
+#define MAX_CACHE_TH  16  /* for writer */
+
 #define INXTREE_BLOCK	256
 #define INXTREE_ADDR_MAX  0x7FFFFFFFF
 #define INXTREE_INVALID_ADDR 0xFFFFFFFF
@@ -33,6 +35,14 @@ typedef unsigned int address_t;
 #define INXTREE_UTF8    1
 #define INXTREE_UTF16   2
 #define INXTREE_GB2312  3
+
+#define INXTREE_VARIED_LEN      0
+#define INXTREE_HAS_DUPINX      true
+#define INXTREE_NOT_HAS_DUPINX  false
+#define INXTREE_ONLIE_RW        true
+#define INXTREE_LOAD            true
+#define INXTREE_NOT_LOAD        false
+
 
 struct inxtree_header {
 	u8 magic        [ BP(1, 2)   ];

@@ -22,7 +22,8 @@ public:
     static char*     ucs4StrToUTF8Str(const u32 *ucs, size_t* u8slen=NULL);
     static int       ucs4CharToUTF8Byte(u32 uchr, char* ub);
     static u32       utf8byteToUCS4Char(const char** ub);
-    static u4char_t* utf8StrToUcs4Str(const char *u8s, size_t* u4slen=NULL);
+    static size_t    utf8StrToUcs4Str(const char *u8s,  u32** u32Ptr);
+
     static int       strComLen(const char* pstr1, const char* pstr2, int start = 0);
 
     static void   mergeFile(FILE *det, FILE *src);

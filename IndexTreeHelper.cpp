@@ -117,20 +117,25 @@ u32 IndexTreeHelper::utf8byteToUCS4Char(const char** ub)
     return uchr;
 }
 
-u4char_t* IndexTreeHelper::utf8StrToUcs4Str(const char *u8s, size_t* u4slen)
+// Caller should release *u32Ptr;
+size_t  IndexTreeHelper::utf8StrToUcs4Str(const char *u8s,  u32** u32Ptr)
 {
     size_t len = strlen(u8s);
     u4char_t *u4s = (u4char_t *)malloc((len+1)*sizeof(u4char_t));
     size_t offset = 0;
+    int u4slen = 0;
     while (*u8s != '\0') {
         u4char_t u4chr = utf8byteToUCS4Char(&u8s);
         if (u4chr == 0)
             break;
+        if (u4chr == -1)
+            continue; //return 0;
         u4s[offset++] = u4chr;
     }
-    if (u4slen != NULL)
-        *u4slen = offset;
-    return u4s;
+    u4s[offset] = '\0';
+    u4slen = offset;
+    *u32Ptr = u4s;
+    return u4slen;
 }
 
 /*@return  - offset aganist current pos. caller should use SEEK_CUR */

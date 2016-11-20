@@ -35,7 +35,7 @@ m_dataItemSize(0)
 IndexTree::~IndexTree()
 {
     if (m_indexTree)
-        free(m_indexTree);
+        delete m_indexTree;
 
     if (m_inxFile != NULL)
         fclose(m_inxFile);
@@ -67,7 +67,8 @@ bool IndexTree::load(FILE *inxFile, int magic)
     m_strIndexLoc = inxtree_read_u32(m_header.loc_strindex);
     m_dataLoc = inxtree_read_u32(m_header.loc_data);
     m_dataItemSize = inxtree_read_u16(m_header.i_size);
-printf("joni m_dataItemSize: %d\n", m_dataItemSize);
+    m_totalEntry = inxtree_read_u32(m_header.d_entries);
+    printf(" entry %d\n", m_totalEntry);
     return loadIndexTree();
 }
 
@@ -75,7 +76,7 @@ bool IndexTree::loadIndexTree()
 {
     if (m_chrIndexLoc != INXTREE_INVALID_ADDR) {
         if (m_indexTree)             // For reload.
-            free(m_indexTree);
+            delete m_indexTree;
 
         indextree::ReadFile read;
         indextree::Malloc maclloc_t;
@@ -107,7 +108,7 @@ void IndexTree::loadIndexTree(tree_node<inxtree_chrindex>::treeNodePtr parent,
     u16 len = inxtree_read_u16(parInx.len_content);
 
     if (len > 5000) {
-        printf("w:{loadIndexTree} more than 5000 child need to be loaded, someting wrong?\n");
+        printf("w:{loadIndexTree (%s)} more than 5000 child need to be loaded, someting wrong?\n", m_header.d_identi);
     }
 
 	//g_sysLog.d("{loadIndexTree} parent loc: (%u-->0x%x), len:(%d)\n", loc, loc, len);
@@ -131,14 +132,31 @@ void IndexTree::loadIndexTree(tree_node<inxtree_chrindex>::treeNodePtr parent,
 	}
 }
 
+unsigned int IndexTree::getTotalEntry()
+{
+    return m_totalEntry;
+}
+
 // Caller should free (void*) ptr.
 void* IndexTree::find(const string& key)
 {
     vector<inxtree_dataitem> items;
     if (lookup(key, items)  && items.size() > 0)
         return items[0].ptr;
-
     return NULL;
+}
+
+bool IndexTree::isExist(const string& key)
+{
+    indextree::MutexLock lock(m_cs);
+
+    struct LookupStat lookupStat;
+    lookupStat.advance = key;
+
+    if (lookup((char*)key.c_str(), m_indexTree->root(), lookupStat)) {
+        return lookupStat.locs.size() > 0;
+    }
+    return false;
 }
 
 bool IndexTree::lookup(const string& key, vector<inxtree_dataitem>& items)
@@ -363,8 +381,8 @@ int IndexTree::getIndexList(IndexList& indexList, string startwith, bool ld, int
 
         //printf("%s, %s, %d\n", startwith.c_str(), prefix.c_str(), remain);
         char* pkey = (char *)(prefix.c_str());
-        size_t u4len;
-        u4char_t* u4str = IndexTreeHelper::utf8StrToUcs4Str(pkey, &u4len);
+        u4char_t* u4str = NULL;
+        size_t u4len = IndexTreeHelper::utf8StrToUcs4Str(key.c_str(), &u4str);
         if (u4len > 0) {
             memcpy(index, u4str, sizeof(u4char_t)*u4len);
             index_star = u4len;
@@ -676,21 +694,25 @@ bool IndexTree::data(address_t loc, int bytes, u8 *buf)
     return false;
 }
 
-void IndexTree::freeItems( IndexList& indexList)
+void IndexTree::freeItems(IndexList& indexList)
 {
-    IndexList::iterator iter = indexList.begin();
-    for (; iter < indexList.end(); ++iter) {
-        iIndexItem* i = *iter;
-        if (i->d.ptr != NULL)
+    for (int k = 0; k < indexList.size(); ++k) {
+        iIndexItem* i = indexList[k];
+        if (i->d.ptr != NULL) {
             free(i->d.ptr);
+            i->d.ptr = NULL;
+        }
+        delete i;
     }
 }
 
 void IndexTree::freeItems(vector<inxtree_dataitem>& items)
 {
     vector<inxtree_dataitem>::iterator iter = items.begin();
-    for (; iter < items.end(); ++iter) {
-        if (iter->ptr != NULL)
+    for (; iter != items.end(); ++iter) {
+        if (iter->ptr != NULL) {
             free(iter->ptr);
+            iter->ptr = NULL;
+        }
     }
 }

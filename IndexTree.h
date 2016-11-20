@@ -25,18 +25,18 @@ using namespace std;
 
 class iIndexItem {
 public:
-    iIndexItem():opaque(NULL),data_i(0),data_s(""),data_f(0.0),addr(INXTREE_INVALID_ADDR)
-	{
+    iIndexItem():opaque(NULL),data_i(0),data_s(""),data_f(0.0),addr(INXTREE_INVALID_ADDR) {
         index = "";  // fixed: macro "index" requires 2 arguments
         d.len_data = 0;
         d.ptr = NULL;
-	}
-    ~iIndexItem()
-    {
+    }
+
+    ~iIndexItem() {
         if (opaque)
-		    free(opaque);
-	}
-	string index; /* utf-8 bytes */
+            free(opaque);
+    }
+
+    string index; /* utf-8 bytes */
 
     inxtree_dataitem d;
     address_t addr; // sometimes, we don't need load data(inxtree_dataitem).
@@ -45,7 +45,7 @@ public:
     int    data_i;
     string data_s;
     double data_f;
-	void *opaque;
+    void *opaque;
 };
 
 typedef vector<iIndexItem*> IndexList;
@@ -57,18 +57,21 @@ public:
 
     virtual bool load(FILE *inxFile, int magic);
     virtual struct inxtree_dataitem dataitem(address_t loc);
+    virtual unsigned int getTotalEntry();
 
     bool load(const string& inxFilePath, int magic, bool r=true);
-    
+
     // Caller should free items[i].ptr or call freeItems()
-    bool lookup(const string& word, vector<inxtree_dataitem>& items);
-    bool lookup(const string& word, vector<inxtree_dataitem>& items, int candidateNum, IndexList& candidate);
+    bool lookup(const string& key, vector<inxtree_dataitem>& items);
+    bool lookup(const string& key, vector<inxtree_dataitem>& items, int candidateNum, IndexList& candidate);
 
     static void freeItems(vector<inxtree_dataitem>& items);
     static void freeItems(IndexList& indexList);
 
     // Caller should free (void*) ptr
     void* find(const string& key);
+
+    bool isExist(const string& key);
 
     bool data(address_t loc, int bytes, u8 *buf);
 
@@ -135,6 +138,7 @@ protected:
     int m_indexEnd;
     int m_indexNumber;
     int m_dataItemSize;
+    unsigned int m_totalEntry;
     map<int, void*> m_blkCache;
 };
 

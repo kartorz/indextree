@@ -20,25 +20,38 @@ using namespace std;
 
 class IndexTreeWriter : public IndexTree {
 public:
-    IndexTreeWriter(bool online = false);
+    IndexTreeWriter(int dataItemSize = 0, bool duplicateIndex = true, bool online = false);
 
     ~IndexTreeWriter();
 
     void setStrinxThreshold(int wordsMax, int depthMax);
     void open();
     bool load(const string& inxFilePath, int magic, bool online = false);
-    bool add(u32 *key, int keylen, void *dataPtr, int dataLen, bool bVariedLength=true);
+
+    bool add(u32 *key, int keylen, void *dataPtr, int dataLen);
+    // Only Index, no data.
+    void add(string key);
+    // Can't modify the length of item's data.
+    bool update(const string& key, u8 *ptr, int len);
+
     bool write(string output="");
+    void sync();
+
+    // Keep Root Node.
+    void clear();
+
+    // Caller should release *ptr.
+    int  readData(u8 **ptr);
+    void writeData(u8 *ptr, int size);
 
     virtual struct inxtree_dataitem dataitem(address_t loc);
 
-
-    unsigned int getTotalEntry() { return m_totalEntry; }
+    virtual unsigned int getTotalEntry() { return m_totalEntry; }
 
 private:
-    unsigned int m_totalEntry;
     bool m_duplicateIndexFlag;
     bool m_bOnLineRW;
+    bool m_bDuplicateIndex;
 
     int m_strinxWordsMax;
     int m_strinxDepthMax;
@@ -46,10 +59,13 @@ private:
     FILE *m_outputFile;
 
     FILE *m_dataTmpFile;
-    FILE *m_strinxTmpFile;
+    //FILE *m_strinxTmpFile;
 
     int m_inxDataLen;
     int m_totalChrindex;
+
+    map<int, struct inxtree_dataitem > m_updateCache;
+
 
     void addToIndextree(ktree::tree_node<inxtree_chrindex>::treeNodePtr parent,
                         const off_t d_off, u32 *keyStartPtr, u32 *keyEndPtr);
