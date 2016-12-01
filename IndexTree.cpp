@@ -67,8 +67,13 @@ bool IndexTree::load(FILE *inxFile, int magic)
     m_strIndexLoc = inxtree_read_u32(m_header.loc_strindex);
     m_dataLoc = inxtree_read_u32(m_header.loc_data);
     m_dataItemSize = inxtree_read_u16(m_header.i_size);
+    m_fileSize = inxtree_read_u32(m_header.f_size);
     m_totalEntry = inxtree_read_u32(m_header.d_entries);
-    printf(" entry %d\n", m_totalEntry);
+
+    fseek(m_inxFile, 0L, SEEK_END);
+    if (ftello(m_inxFile) != m_fileSize)
+        return false;
+
     return loadIndexTree();
 }
 
@@ -649,6 +654,7 @@ IndexTree::dataitem(address_t loc)
     return d;
 }
 
+// Caller shold release d.ptr for varialbe size item.
 struct inxtree_dataitem
 IndexTree::dataitem(FILE *datafile, off_t off)
 {
